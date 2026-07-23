@@ -28,8 +28,13 @@ ever reconstruct real data without coming back through here.
    net on top of regex/glossary). **Additive highlight-to-mask:** the user can also
    manually highlight/select any other text in the preview and mark it for masking
    — auto-detection still runs as normal, this just catches whatever it missed.
-   Every confirmed item (auto-flagged or manually highlighted) becomes a
-   token → real-value pair.
+   **Highlighting one instance auto-propagates to every other exact-match
+   occurrence of that same text in the document** (case-insensitive, same matching
+   logic as the glossary) — the preview updates to show all newly-caught instances,
+   and the term is added to the session glossary so a later re-scan also catches it.
+   This app never masks "some occurrences" of a term, only all-or-none, since a
+   partial mask would defeat the whole point of the trust boundary. Every confirmed
+   item (auto-flagged or manually highlighted) becomes a token → real-value pair.
 4. User enters a passphrase. App encrypts the token→real-value mapping
    (`mapping.enc.json`, AES-256-GCM, key derived via scrypt from the passphrase —
    never stored in plaintext) and produces `masked_output.txt`/`.docx`.
@@ -87,7 +92,9 @@ ever reconstruct real data without coming back through here.
   known sensitive terms (client names, codenames, IPs/emails/domains).
 - Preview/confirm UI correctly shows what will be masked, lets the user add missed
   terms to the glossary, and lets the user manually highlight/select additional
-  text to mask before finalizing.
+  text to mask before finalizing. Highlighting one instance of a term correctly
+  masks every other occurrence of that same term in the document (verify with a
+  test doc containing the same keyword 3+ times) — no partial masking.
 - Masking produces a valid `mapping.enc.json` (encrypted, unreadable without the
   passphrase) and a valid `masked_output.txt`/`.docx` with all confirmed sensitive
   terms (auto-detected and manually-highlighted) replaced by placeholder tokens.
