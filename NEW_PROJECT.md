@@ -25,11 +25,19 @@ ever reconstruct real data without coming back through here.
    calls during detection.
 3. User reviews a preview/diff of everything flagged for masking, can add missed
    terms to the glossary before continuing (human-confirm gate — the real safety
-   net on top of regex/glossary).
+   net on top of regex/glossary). **Additive highlight-to-mask:** the user can also
+   manually highlight/select any other text in the preview and mark it for masking
+   — auto-detection still runs as normal, this just catches whatever it missed.
+   Every confirmed item (auto-flagged or manually highlighted) becomes a
+   token → real-value pair.
 4. User enters a passphrase. App encrypts the token→real-value mapping
    (`mapping.enc.json`, AES-256-GCM, key derived via scrypt from the passphrase —
    never stored in plaintext) and produces `masked_output.txt`/`.docx`.
-5. User downloads both files and can stop here — no forced continuation into any
+   **Whenever at least one item was masked, the app also always generates
+   `mapping.xlsx`** (not optional) — a plain, human-readable spreadsheet with one
+   row per masked item, with columns for the masked token and the actual real
+   value, covering both auto-detected and manually-highlighted items.
+5. User downloads all files and can stop here — no forced continuation into any
    other app.
 6. Later (separately, whenever ready): user uploads a generated result file (e.g.
    `masked_output_result.docx`, produced elsewhere) + `mapping.enc.json`, enters the
@@ -37,7 +45,8 @@ ever reconstruct real data without coming back through here.
    user downloads `final_<name>.docx`.
 
 ## Output / deliverables
-- `masked_output.txt`/`.docx` + `mapping.enc.json` (mask step)
+- `masked_output.txt`/`.docx` + `mapping.enc.json` + `mapping.xlsx` (mask step;
+  `mapping.xlsx` only when at least one item was masked, which is the normal case)
 - `final_<name>.docx` with real data restored (unmask step)
 - A local web app (localhost) the user runs whenever they need to mask/unmask a doc.
 
@@ -54,6 +63,17 @@ ever reconstruct real data without coming back through here.
   write) rather than building a parser from scratch.
 - Encryption: Node `crypto`, AES-256-GCM, key derived via scrypt from a per-session
   passphrase entered by the user — never persisted in plaintext anywhere.
+- Excel mapping export (`mapping.xlsx`): always generated whenever at least one item
+  was masked (not optional/on-request), via a library like `exceljs`. One row per
+  masked item, columns for the masked token and the actual real value, covering
+  both auto-detected and manually-highlighted items. **Accepted trade-off,
+  explicitly chosen by the user over a password-protected alternative**: this file
+  is plaintext and is the user's own responsibility to store/delete securely. It
+  sits alongside `mapping.enc.json` (still the encrypted source of truth the app
+  itself uses for the unmask step) as a human-readable convenience copy, not a
+  replacement.
+- Highlight-to-mask: additive to regex/glossary auto-detection, not a replacement —
+  both feed the same confirmed-mapping list.
 - Must never make an outbound network call of any kind with document content or the
   decryption key/mapping — this app's entire value is being the one piece that
   stays fully offline-capable for sensitive data handling.
@@ -65,11 +85,15 @@ ever reconstruct real data without coming back through here.
 ## Done criteria
 - Given a real test requirement doc, regex + glossary detection correctly catches
   known sensitive terms (client names, codenames, IPs/emails/domains).
-- Preview/confirm UI correctly shows what will be masked and lets the user add
-  missed terms to the glossary before finalizing.
+- Preview/confirm UI correctly shows what will be masked, lets the user add missed
+  terms to the glossary, and lets the user manually highlight/select additional
+  text to mask before finalizing.
 - Masking produces a valid `mapping.enc.json` (encrypted, unreadable without the
   passphrase) and a valid `masked_output.txt`/`.docx` with all confirmed sensitive
-  terms replaced by placeholder tokens.
+  terms (auto-detected and manually-highlighted) replaced by placeholder tokens.
+- `mapping.xlsx` is always generated whenever at least one item was masked, with
+  correct token + actual-value columns covering both auto-detected and
+  manually-highlighted items.
 - Unmask flow: given a result file with placeholder tokens + the correct mapping +
   correct passphrase, produces a `final_<name>.docx` with real values correctly
   restored — verified by inspection against the known mapping. Wrong passphrase is
