@@ -3,6 +3,7 @@ import {
   addGlossaryTerm,
   detectDocx,
   fetchGlossary,
+  fetchMappingXlsx,
   finalizeMask,
   removeGlossaryTerm,
   downloadBlob,
@@ -52,7 +53,6 @@ export default function MaskFlow() {
   const [manualTerms, setManualTerms] = useState<string[]>([]);
   const [glossary, setGlossary] = useState<string[]>([]);
   const [newGlossaryTerm, setNewGlossaryTerm] = useState("");
-  const [passphrase, setPassphrase] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<string | null>(null);
@@ -149,21 +149,27 @@ export default function MaskFlow() {
 
   async function handleFinalize() {
     if (!text) return;
-    if (passphrase.length < 4) {
-      setError("Passphrase must be at least 4 characters.");
-      return;
-    }
     setBusy(true);
     setError(null);
     setSummary(null);
     try {
-      const { zipBlob, maskedItemCount } = await finalizeMask(text, confirmedValues, passphrase);
-      downloadBlob(zipBlob, "masking-app-output.zip");
-      setSummary(
-        `Done. ${maskedItemCount} item(s) masked. Downloaded masking-app-output.zip ` +
-          "(masked_output.docx + mapping.enc.json" +
-          (maskedItemCount > 0 ? " + mapping.xlsx)." : ").")
-      );
+      const { docxBlob, maskedItemCount } = await finalizeMask(text, confirmedValues);
+      downloadBlob(docxBlob, "masked_output.docx");
+      setSummary(`Done. ${maskedItemCount} item(s) masked. Downloaded masked_output.docx.`);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDownloadMapping() {
+    if (!text) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const xlsxBlob = await fetchMappingXlsx(text, confirmedValues);
+      downloadBlob(xlsxBlob, "mapping.xlsx");
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -173,103 +179,145 @@ export default function MaskFlow() {
 
   return (
     <div>
-      <h2>1. Upload requirement document (.docx)</h2>
-      <input type="file" accept=".docx" onChange={handleFileChange} disabled={busy} />
-
-      {error && <p style={{ color: "crimson" }}>{error}</p>}
+      <div className="card">
+        <h2><span className="step-label">1</span>Upload requirement document (.docx)</h2>
+        <div className="file-picker" style={{ marginTop: 12 }}>
+          <label className="file-picker-button" htmlFor="mask-file-input">
+            Choose file
+            <input
+              id="mask-file-input"
+              type="file"
+              accept=".docx"
+              onChange={handleFileChange}
+              disabled={busy}
+            />
+          </label>
+          {text !== null && <span className="file-picker-name">document loaded</span>}
+        </div>
+        {error && <div className="banner banner-error">{error}</div>}
+      </div>
 
       {text !== null && (
         <>
-          <h2>2. Preview — auto-detected terms highlighted; highlight any other text to mask it too</h2>
-          <p style={{ fontSize: 13, color: "#555" }}>
-            <span style={{ background: "#ffe08a" }}>orange</span> = auto-detected (regex/glossary).{" "}
-            <span style={{ background: "#a8e6a3" }}>green</span> = manually highlighted. Select any text
-            below with your mouse to add it. Highlighting one occurrence masks every occurrence of that
-            same text in the document.
-          </p>
-          <div
-            ref={previewRef}
-            onMouseUp={handleMouseUpOnPreview}
-            style={{
-              whiteSpace: "pre-wrap",
-              border: "1px solid #ccc",
-              padding: 12,
-              maxHeight: 320,
-              overflowY: "auto",
-              fontFamily: "monospace",
-              fontSize: 13,
-              userSelect: "text",
-            }}
-          >
-            {segments.map((seg, i) => (
-              <span
-                key={i}
-                style={{
-                  background:
-                    seg.kind === "auto" ? "#ffe08a" : seg.kind === "manual" ? "#a8e6a3" : "transparent",
-                }}
-              >
-                {seg.text}
+          <div className="card">
+            <h2>
+              <span className="step-label">2</span>Preview — highlight any text to mask it
+            </h2>
+            <p className="hint">
+              Select any text below with your mouse to mark it for masking. Highlighting one
+              occurrence masks every occurrence of that same text in the document.
+            </p>
+            <div className="legend">
+              <span className="swatch" style={{ ["--swatch-color" as string]: "var(--auto-bg-strong)" }}>
+                auto-detected
               </span>
-            ))}
+              <span className="swatch" style={{ ["--swatch-color" as string]: "var(--manual-bg-strong)" }}>
+                manually highlighted
+              </span>
+            </div>
+            <div className="preview" ref={previewRef} onMouseUp={handleMouseUpOnPreview}>
+              {segments.map((seg, i) => (
+                <span
+                  key={i}
+                  className={
+                    seg.kind === "auto" ? "mark-auto" : seg.kind === "manual" ? "mark-manual" : undefined
+                  }
+                >
+                  {seg.text}
+                </span>
+              ))}
+            </div>
+
+            <h3>Auto-detected terms ({autoMatches.length})</h3>
+            <ul className="term-list checklist">
+              {[...new Map(autoMatches.map((m) => [m.value.toLowerCase(), m])).values()].map((m) => (
+                <li key={m.value.toLowerCase()}>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={!excluded.has(m.value.toLowerCase())}
+                      onChange={() => toggleExcluded(m.value)}
+                    />
+                    {m.value} <span className="source-tag">({m.source})</span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+
+            <h3>Manually highlighted terms ({manualTerms.length})</h3>
+            {manualTerms.length > 0 ? (
+              <ul className="term-list">
+                {manualTerms.map((t) => (
+                  <li key={t} className="chip">
+                    {t}
+                    <button onClick={() => removeManualTerm(t)} aria-label={`remove ${t}`}>
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="empty-note">Nothing highlighted manually yet.</p>
+            )}
+
+            <h3>Glossary (persists across documents)</h3>
+            <div className="glossary-row">
+              <input
+                className="text-input"
+                value={newGlossaryTerm}
+                onChange={(e) => setNewGlossaryTerm(e.target.value)}
+                placeholder="e.g. Client codename"
+              />
+              <button className="btn btn-secondary" onClick={handleAddGlossaryTerm}>
+                Add
+              </button>
+            </div>
+            {glossary.length > 0 ? (
+              <ul className="term-list">
+                {glossary.map((t) => (
+                  <li key={t} className="chip">
+                    {t}
+                    <button onClick={() => handleRemoveGlossaryTerm(t)} aria-label={`remove ${t}`}>
+                      ×
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="empty-note">Glossary is empty.</p>
+            )}
           </div>
 
-          <h3>Auto-detected terms ({autoMatches.length})</h3>
-          <ul style={{ maxHeight: 150, overflowY: "auto" }}>
-            {[...new Map(autoMatches.map((m) => [m.value.toLowerCase(), m])).values()].map((m) => (
-              <li key={m.value.toLowerCase()}>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={!excluded.has(m.value.toLowerCase())}
-                    onChange={() => toggleExcluded(m.value)}
-                  />{" "}
-                  {m.value} <em style={{ color: "#888" }}>({m.source})</em>
-                </label>
-              </li>
-            ))}
-          </ul>
-
-          <h3>Manually highlighted terms ({manualTerms.length})</h3>
-          <ul>
-            {manualTerms.map((t) => (
-              <li key={t}>
-                {t} <button onClick={() => removeManualTerm(t)}>remove</button>
-              </li>
-            ))}
-          </ul>
-
-          <h3>Glossary (persists across documents)</h3>
-          <div>
-            <input
-              value={newGlossaryTerm}
-              onChange={(e) => setNewGlossaryTerm(e.target.value)}
-              placeholder="e.g. Client codename"
-            />
-            <button onClick={handleAddGlossaryTerm}>Add to glossary</button>
+          <div className="card">
+            <h2><span className="step-label">3</span>Download</h2>
+            <div className="btn-row" style={{ marginTop: 12 }}>
+              <button
+                className="btn btn-primary"
+                onClick={handleFinalize}
+                disabled={busy || confirmedValues.length === 0}
+              >
+                {busy ? "Working..." : "Download masked_output.docx"}
+              </button>
+              <button
+                className="btn btn-secondary"
+                onClick={handleDownloadMapping}
+                disabled={busy || confirmedValues.length === 0}
+              >
+                Download mapping.xlsx
+              </button>
+            </div>
+            {confirmedValues.length === 0 && (
+              <p className="empty-note" style={{ marginTop: 10 }}>
+                Nothing confirmed for masking yet.
+              </p>
+            )}
+            {confirmedValues.length > 0 && (
+              <p className="hint">
+                Keep mapping.xlsx local — you'll need it later to unmask the generated result.
+              </p>
+            )}
+            {summary && <div className="banner banner-success">{summary}</div>}
           </div>
-          <ul>
-            {glossary.map((t) => (
-              <li key={t}>
-                {t} <button onClick={() => handleRemoveGlossaryTerm(t)}>remove</button>
-              </li>
-            ))}
-          </ul>
-
-          <h2>3. Encrypt & download</h2>
-          <input
-            type="password"
-            placeholder="Passphrase (min 4 chars)"
-            value={passphrase}
-            onChange={(e) => setPassphrase(e.target.value)}
-          />
-          <button onClick={handleFinalize} disabled={busy || confirmedValues.length === 0}>
-            {busy ? "Working..." : "Generate masked files"}
-          </button>
-          {confirmedValues.length === 0 && (
-            <p style={{ color: "#888" }}>Nothing confirmed for masking yet.</p>
-          )}
-          {summary && <p style={{ color: "green" }}>{summary}</p>}
         </>
       )}
     </div>

@@ -1,47 +1,60 @@
 import { Router } from "express";
 import multer from "multer";
+import ExcelJS from "exceljs";
 import { extractTextFromDocx, buildDocxFromText } from "../lib/docx.js";
 import { applyUnmask } from "../lib/mask.js";
-import { decryptMapping, type EncryptedPayload } from "../lib/crypto.js";
 
 const upload = multer({ storage: multer.memoryStorage() });
 export const unmaskRouter = Router();
 
+async function readMappingXlsx(
+  buffer: Buffer
+): Promise<Record<string, string>> {
+  const workbook = new ExcelJS.Workbook();
+  // exceljs ships its own Buffer type from an older @types/node than this
+  // project uses; the runtime value is a plain Buffer either way.
+  await workbook.xlsx.load(
+    buffer as unknown as Parameters<typeof workbook.xlsx.load>[0]
+  );
+  const sheet = workbook.getWorksheet("Mapping");
+  if (!sheet) throw new Error("mapping.xlsx is missing the 'Mapping' sheet.");
+
+  const mapping: Record<string, string> = {};
+  sheet.eachRow((row, rowNumber) => {
+    if (rowNumber === 1) return; // header
+    const token = row.getCell(1).text;
+    const value = row.getCell(2).text;
+    if (token) mapping[token] = value;
+  });
+  return mapping;
+}
+
 /**
- * Upload the masked result .docx + mapping.enc.json + passphrase.
- * Decrypts the mapping, replaces tokens with real values, returns the
- * final .docx. Wrong passphrase / corrupted mapping is rejected, never
- * silently produces garbage output.
+ * Upload the masked result .docx + mapping.xlsx (the same file downloaded
+ * during masking). Replaces tokens with real values and returns the final
+ * .docx.
  */
 unmaskRouter.post(
   "/",
   upload.fields([
     { name: "resultDocx", maxCount: 1 },
-    { name: "mappingEnc", maxCount: 1 },
+    { name: "mappingXlsx", maxCount: 1 },
   ]),
   async (req, res) => {
     try {
       const files = req.files as
-        | { resultDocx?: Express.Multer.File[]; mappingEnc?: Express.Multer.File[] }
+        | { resultDocx?: Express.Multer.File[]; mappingXlsx?: Express.Multer.File[] }
         | undefined;
       const resultDocxFile = files?.resultDocx?.[0];
-      const mappingEncFile = files?.mappingEnc?.[0];
-      const { passphrase } = req.body ?? {};
+      const mappingXlsxFile = files?.mappingXlsx?.[0];
 
-      if (!resultDocxFile || !mappingEncFile) {
+      if (!resultDocxFile || !mappingXlsxFile) {
         return res
           .status(400)
-          .json({ error: "resultDocx and mappingEnc files are required" });
-      }
-      if (typeof passphrase !== "string" || !passphrase) {
-        return res.status(400).json({ error: "passphrase is required" });
+          .json({ error: "resultDocx and mappingXlsx files are required" });
       }
 
-      const payload: EncryptedPayload = JSON.parse(
-        mappingEncFile.buffer.toString("utf8")
-      );
-      const mapping = decryptMapping(payload, passphrase);
-
+      const mapping = await readMappingXlsx(mappingXlsxFile.buffer);
       const resultText = await extractTextFromDocx(resultDocxFile.buffer);
       const finalText = applyUnmask(resultText, mapping);
       const finalDocxBuffer = await buildDocxFromText(finalText);

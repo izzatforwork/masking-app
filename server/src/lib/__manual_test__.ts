@@ -1,12 +1,11 @@
 import { detectAll } from "./detect.js";
 import { applyMask, applyUnmask } from "./mask.js";
-import { encryptMapping, decryptMapping } from "./crypto.js";
 import { buildMappingXlsx } from "./excel.js";
 import { buildDocxFromText, extractTextFromDocx } from "./docx.js";
 import assert from "assert";
 
 async function main() {
-  const glossary = ["Acme Corp", "Project Nightingale"];
+  const glossary = ["Acme Corp", "Project Nightingale", "CI"];
   const text = [
     "Client: Acme Corp",
     "Internal codename: Project Nightingale",
@@ -14,6 +13,7 @@ async function main() {
     "Contact: john.doe@acmecorp.com",
     "Internal host: db01.acmecorp.internal",
     "Acme corp will review this LLD before sign-off.",
+    "CI pipeline has no dependencies on legacy infra.",
   ].join("\n");
 
   // 1. detection
@@ -23,6 +23,10 @@ async function main() {
   assert(matches.some((m) => m.source === "regex-email"));
   assert(matches.some((m) => m.source === "regex-domain"));
   assert(matches.filter((m) => m.source === "glossary" && m.value.toLowerCase() === "acme corp").length === 2, "expected both case-variant occurrences of Acme Corp");
+
+  // 1b. word-boundary check: "CI" must not match inside "dependencies"
+  const ciMatches = matches.filter((m) => m.source === "glossary" && m.value === "CI");
+  assert(ciMatches.length === 1, `expected exactly 1 standalone "CI" match, got ${ciMatches.length}`);
 
   // 2. simulate user confirming everything detected + one manual highlight
   const confirmedValues = [...matches.map((m) => m.value), "sign-off"];
@@ -34,6 +38,7 @@ async function main() {
   assert(!maskedText.includes("10.0.5.12"), "IP leaked into masked text");
   assert(!maskedText.includes("john.doe@acmecorp.com"), "email leaked into masked text");
   assert(maskedText.includes("sign-off") === false, "manually highlighted term leaked");
+  assert(maskedText.includes("dependencies"), "word-boundary regression: 'dependencies' got mangled by masking 'CI'");
 
   // 4. all-occurrence propagation check: both casings of "Acme Corp" masked
   const acmeToken = Object.entries(mapping).find(
@@ -48,25 +53,11 @@ async function main() {
   const roundTrippedText = await extractTextFromDocx(docxBuffer);
   assert(roundTrippedText.includes(acmeToken!), "docx round-trip lost token");
 
-  // 6. encryption round trip
-  const encrypted = encryptMapping(mapping, "correct-horse-battery-staple");
-  const decrypted = decryptMapping(encrypted, "correct-horse-battery-staple");
-  assert.deepStrictEqual(decrypted, mapping, "mapping mismatch after decrypt");
-
-  // 7. wrong passphrase must be rejected, not silently return garbage
-  let wrongPassphraseRejected = false;
-  try {
-    decryptMapping(encrypted, "wrong-passphrase");
-  } catch {
-    wrongPassphraseRejected = true;
-  }
-  assert(wrongPassphraseRejected, "wrong passphrase was NOT rejected");
-
-  // 8. excel export
+  // 6. excel export
   const xlsxBuffer = await buildMappingXlsx(mapping);
   assert(xlsxBuffer.length > 0, "xlsx buffer empty");
 
-  // 9. unmask round trip
+  // 7. unmask round trip
   const restoredText = applyUnmask(roundTrippedText, mapping);
   assert(restoredText.includes("Acme Corp") || restoredText.includes("Acme corp"), "real value not restored");
   assert(restoredText.includes("10.0.5.12"), "IP not restored");

@@ -44,25 +44,39 @@ export async function detectDocx(
   return res.json();
 }
 
-/**
- * Returns a single zip (masked_output.docx + mapping.enc.json + mapping.xlsx)
- * as a Blob — bundled server-side into one file so the browser only ever
- * needs to trigger one download, avoiding Chrome's multi-download blocking.
- */
+/** Returns the masked .docx as a Blob, plus how many items were masked. */
 export async function finalizeMask(
   text: string,
-  confirmedValues: string[],
-  passphrase: string
-): Promise<{ zipBlob: Blob; maskedItemCount: number }> {
+  confirmedValues: string[]
+): Promise<{ docxBlob: Blob; maskedItemCount: number }> {
   const res = await fetch(`${API_BASE}/api/mask/finalize`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text, confirmedValues, passphrase }),
+    body: JSON.stringify({ text, confirmedValues }),
   });
   if (!res.ok) throw new Error((await res.json()).error ?? "finalize failed");
   const maskedItemCount = Number(res.headers.get("X-Masked-Item-Count") ?? "0");
-  const zipBlob = await res.blob();
-  return { zipBlob, maskedItemCount };
+  const docxBlob = await res.blob();
+  return { docxBlob, maskedItemCount };
+}
+
+/**
+ * Returns mapping.xlsx as a Blob. Fetched as its own request (rather than
+ * bundled with the docx) so the browser only ever triggers one download per
+ * user click — Chrome's multi-download protection silently drops all but
+ * the first of several auto-triggered downloads fired from one click.
+ */
+export async function fetchMappingXlsx(
+  text: string,
+  confirmedValues: string[]
+): Promise<Blob> {
+  const res = await fetch(`${API_BASE}/api/mask/finalize/mapping-xlsx`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, confirmedValues }),
+  });
+  if (!res.ok) throw new Error((await res.json()).error ?? "mapping.xlsx fetch failed");
+  return res.blob();
 }
 
 export function downloadBlob(blob: Blob, filename: string) {
@@ -76,13 +90,11 @@ export function downloadBlob(blob: Blob, filename: string) {
 
 export async function unmask(
   resultDocx: File,
-  mappingEnc: File,
-  passphrase: string
+  mappingXlsx: File
 ): Promise<{ finalDocxBase64: string }> {
   const formData = new FormData();
   formData.append("resultDocx", resultDocx);
-  formData.append("mappingEnc", mappingEnc);
-  formData.append("passphrase", passphrase);
+  formData.append("mappingXlsx", mappingXlsx);
   const res = await fetch(`${API_BASE}/api/unmask`, {
     method: "POST",
     body: formData,

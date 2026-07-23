@@ -8,7 +8,7 @@ export function findAllOccurrences(
   term: string
 ): { start: number; end: number }[] {
   if (!term.trim()) return [];
-  const re = new RegExp(escapeRegExp(term), "gi");
+  const re = new RegExp(`\\b${escapeRegExp(term)}\\b`, "gi");
   const out: { start: number; end: number }[] = [];
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {

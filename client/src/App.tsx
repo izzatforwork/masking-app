@@ -1,4 +1,5 @@
 import { useState } from "react";
+import "./App.css";
 import MaskFlow from "./components/MaskFlow";
 import UnmaskFlow from "./components/UnmaskFlow";
 
@@ -6,20 +7,27 @@ function App() {
   const [tab, setTab] = useState<"mask" | "unmask">("mask");
 
   return (
-    <div style={{ maxWidth: 900, margin: "0 auto", padding: 24, fontFamily: "sans-serif" }}>
-      <h1>masking-app</h1>
-      <p style={{ color: "#555" }}>
-        Fully local. No document content, real values, or the decryption key/passphrase ever leaves this
-        machine.
-      </p>
-      <div style={{ marginBottom: 16 }}>
-        <button onClick={() => setTab("mask")} disabled={tab === "mask"}>
-          Mask a document
-        </button>{" "}
-        <button onClick={() => setTab("unmask")} disabled={tab === "unmask"}>
-          Unmask a result
-        </button>
-      </div>
+    <div className="shell">
+      <header className="shell-header">
+        <h1>masking-app</h1>
+        <p className="subtitle">
+          Fully local. No document content or real values ever leave this machine.
+        </p>
+        <div className="tabs">
+          <button
+            className={tab === "mask" ? "active" : ""}
+            onClick={() => setTab("mask")}
+          >
+            Mask a document
+          </button>
+          <button
+            className={tab === "unmask" ? "active" : ""}
+            onClick={() => setTab("unmask")}
+          >
+            Unmask a result
+          </button>
+        </div>
+      </header>
       {tab === "mask" ? <MaskFlow /> : <UnmaskFlow />}
     </div>
   );

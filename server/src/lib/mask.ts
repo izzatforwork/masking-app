@@ -44,7 +44,7 @@ export function applyMask(text: string, confirmedValues: string[]): MaskResult {
   const escaped = uniqueTerms
     .map(escapeRegExp)
     .sort((a, b) => b.length - a.length);
-  const combined = new RegExp(escaped.join("|"), "gi");
+  const combined = new RegExp(`\\b(?:${escaped.join("|")})\\b`, "gi");
   const maskedText = text.replace(combined, (match) => {
     return tokenOf.get(match.toLowerCase()) ?? match;
   });
