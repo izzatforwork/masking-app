@@ -1,7 +1,10 @@
 import { detectAll } from "./detect.js";
 import { applyMask, applyUnmask } from "./mask.js";
 import { buildMappingXlsx } from "./excel.js";
-import { buildDocxFromText, extractTextFromDocx } from "./docx.js";
+import { buildDocxFromText, extractTextFromDocx, applyUnmaskToDocxBuffer } from "./docx.js";
+import { Document, Packer, Paragraph, TextRun } from "docx";
+import JSZip from "jszip";
+import mammoth from "mammoth";
 import assert from "assert";
 
 async function main() {
@@ -62,6 +65,45 @@ async function main() {
   assert(restoredText.includes("Acme Corp") || restoredText.includes("Acme corp"), "real value not restored");
   assert(restoredText.includes("10.0.5.12"), "IP not restored");
   assert(!restoredText.includes(acmeToken!), "token still present after unmask");
+
+  // 8. format-preserving unmask: bold formatting survives, and a token split
+  // across multiple runs (a real Word quirk) is still found and replaced.
+  const formatTestMapping = { "[MASK_1]": "Acme Corp", "[MASK_2]": "10.0.5.12" };
+  const formatTestDoc = new Document({
+    sections: [
+      {
+        children: [
+          new Paragraph({
+            children: [
+              new TextRun({ text: "Client: [MASK_1] uses ", bold: true }),
+              new TextRun("IP "),
+              new TextRun("[MASK_2]"),
+            ],
+          }),
+          new Paragraph({
+            children: [
+              new TextRun("Split token: ["),
+              new TextRun("MASK_1"),
+              new TextRun("]"),
+              new TextRun(" end."),
+            ],
+          }),
+        ],
+      },
+    ],
+  });
+  const formatTestBuffer = await Packer.toBuffer(formatTestDoc);
+  const formatTestResult = await applyUnmaskToDocxBuffer(formatTestBuffer, formatTestMapping);
+
+  const resultZip = await JSZip.loadAsync(formatTestResult);
+  const resultXml = await resultZip.file("word/document.xml")!.async("string");
+  assert(resultXml.includes("Acme Corp"), "token not replaced in docx xml");
+  assert(resultXml.includes("10.0.5.12"), "second token not replaced in docx xml");
+  assert(!resultXml.includes("MASK_1") && !resultXml.includes("MASK_2"), "leftover token fragment in docx xml");
+  assert(/<w:b\b/.test(resultXml), "bold formatting was lost during unmask");
+
+  const formatTestText = (await mammoth.extractRawText({ buffer: formatTestResult })).value;
+  assert(formatTestText.includes("Split token: Acme Corp end."), "split-run token was not reassembled correctly");
 
   console.log("\nALL MANUAL TESTS PASSED");
 }

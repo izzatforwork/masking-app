@@ -18,12 +18,15 @@ export default function UnmaskFlow() {
     setSummary(null);
     try {
       const { finalDocxBase64 } = await unmask(resultDocx, mappingXlsx);
+      const ext = resultDocx.name.match(/\.[^./]+$/)?.[0] ?? ".docx";
+      const base = resultDocx.name.slice(0, resultDocx.name.length - ext.length);
+      const outName = `${base}_Unmasked${ext}`;
       downloadBase64(
         finalDocxBase64,
-        "final_output.docx",
+        outName,
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
       );
-      setSummary("Done. Downloaded final_output.docx with real values restored.");
+      setSummary(`Done. Downloaded ${outName} with real values restored.`);
     } catch (err) {
       setError((err as Error).message);
     } finally {

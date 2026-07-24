@@ -1,8 +1,7 @@
 import { Router } from "express";
 import multer from "multer";
 import ExcelJS from "exceljs";
-import { extractTextFromDocx, buildDocxFromText } from "../lib/docx.js";
-import { applyUnmask } from "../lib/mask.js";
+import { applyUnmaskToDocxBuffer } from "../lib/docx.js";
 
 const upload = multer({ storage: multer.memoryStorage() });
 export const unmaskRouter = Router();
@@ -55,9 +54,7 @@ unmaskRouter.post(
       }
 
       const mapping = await readMappingXlsx(mappingXlsxFile.buffer);
-      const resultText = await extractTextFromDocx(resultDocxFile.buffer, resultDocxFile.originalname);
-      const finalText = applyUnmask(resultText, mapping);
-      const finalDocxBuffer = await buildDocxFromText(finalText);
+      const finalDocxBuffer = await applyUnmaskToDocxBuffer(resultDocxFile.buffer, mapping);
 
       res.json({ finalDocxBase64: finalDocxBuffer.toString("base64") });
     } catch (err) {
