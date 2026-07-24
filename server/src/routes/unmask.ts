@@ -55,7 +55,7 @@ unmaskRouter.post(
       }
 
       const mapping = await readMappingXlsx(mappingXlsxFile.buffer);
-      const resultText = await extractTextFromDocx(resultDocxFile.buffer);
+      const resultText = await extractTextFromDocx(resultDocxFile.buffer, resultDocxFile.originalname);
       const finalText = applyUnmask(resultText, mapping);
       const finalDocxBuffer = await buildDocxFromText(finalText);
 

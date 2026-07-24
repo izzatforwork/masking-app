@@ -18,6 +18,21 @@ export function findAllOccurrences(
   return out;
 }
 
+/**
+ * Cleans a raw drag-selected string so it lines up with `findAllOccurrences`'s
+ * \b word-boundary matching. Mouse drags easily overshoot into an adjacent
+ * comma/space, and a lone trailing/leading non-word character breaks the \b
+ * anchor — causing the selection to match zero times, including the exact
+ * instance the user just selected. Also collapses internal whitespace runs
+ * (e.g. a stray double space) so the same term matches consistently elsewhere.
+ */
+export function cleanSelectedText(raw: string): string {
+  return raw
+    .trim()
+    .replace(/^[^\w]+|[^\w]+$/g, "")
+    .replace(/\s+/g, " ");
+}
+
 /** Returns the {start, end} text offset of the current window selection within `container`. */
 export function getSelectionOffsets(
   container: HTMLElement

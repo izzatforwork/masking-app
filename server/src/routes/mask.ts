@@ -13,7 +13,7 @@ export const maskRouter = Router();
 maskRouter.post("/detect", upload.single("file"), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: "file is required" });
-    const text = await extractTextFromDocx(req.file.buffer);
+    const text = await extractTextFromDocx(req.file.buffer, req.file.originalname);
     const glossary = readGlossary();
     const matches = detectAll(text, glossary);
     res.json({ text, matches });

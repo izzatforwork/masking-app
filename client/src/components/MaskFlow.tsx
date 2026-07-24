@@ -9,7 +9,7 @@ import {
   downloadBlob,
   type DetectedMatch,
 } from "../api";
-import { findAllOccurrences, getSelectionOffsets } from "../lib/textMatch";
+import { cleanSelectedText, findAllOccurrences, getSelectionOffsets } from "../lib/textMatch";
 
 type Segment = { text: string; kind: "none" | "auto" | "manual" };
 
@@ -95,13 +95,22 @@ export default function MaskFlow() {
     if (!text || !previewRef.current) return;
     const offsets = getSelectionOffsets(previewRef.current);
     if (!offsets || offsets.start === offsets.end) return;
-    const selectedText = text.slice(offsets.start, offsets.end).trim();
+    const selectedText = cleanSelectedText(text.slice(offsets.start, offsets.end));
+    window.getSelection()?.removeAllRanges();
     if (!selectedText) return;
+
+    if (findAllOccurrences(text, selectedText).length === 0) {
+      setError(
+        `Couldn't highlight "${selectedText}" — the selection may start/end mid-word. Try selecting again, starting and ending cleanly on whole words.`
+      );
+      return;
+    }
+
+    setError(null);
     setManualTerms((prev) => {
       const exists = prev.some((t) => t.toLowerCase() === selectedText.toLowerCase());
       return exists ? prev : [...prev, selectedText];
     });
-    window.getSelection()?.removeAllRanges();
   }
 
   function removeManualTerm(term: string) {
@@ -180,14 +189,14 @@ export default function MaskFlow() {
   return (
     <div>
       <div className="card">
-        <h2><span className="step-label">1</span>Upload requirement document (.docx)</h2>
+        <h2><span className="step-label">1</span>Upload requirement document (.doc or .docx)</h2>
         <div className="file-picker" style={{ marginTop: 12 }}>
           <label className="file-picker-button" htmlFor="mask-file-input">
             Choose file
             <input
               id="mask-file-input"
               type="file"
-              accept=".docx"
+              accept=".doc,.docx"
               onChange={handleFileChange}
               disabled={busy}
             />
