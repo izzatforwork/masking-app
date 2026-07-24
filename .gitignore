@@ -5,3 +5,7 @@ client/dist/
 *.log
 .env
 .env.*
+
+# Project markdown docs stay local only, never pushed (see global CLAUDE.md).
+*.md
+!client/README.md
